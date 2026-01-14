@@ -1,6 +1,20 @@
 services:
   dragonify:
-    image: ghcr.io/tjhorner/dragonify:main
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Or use the prebuilt image instead of local build
+    # image: ghcr.io/engturtle/dragonify:main
+    image: 
+    environment:
+      CONNECT_ALL: false
+      LOG_LEVEL: debug
     restart: always
+    user: 0:${DOCKER_GID:-0}
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro

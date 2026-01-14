@@ -1,19 +1,16 @@
-FROM node:22-slim AS base
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+FROM node:22-slim AS build
 COPY . /app
 WORKDIR /app
+RUN npm ci
+RUN npm run build
 
-FROM base AS prod-deps
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
+FROM node:22-slim AS prod-deps
+COPY package*.json /app/
+WORKDIR /app
+RUN npm ci --omit=dev
 
-FROM base AS build
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-RUN pnpm run build
-
-FROM base
+FROM gcr.io/distroless/nodejs22-debian12
+COPY --from=build /app/dist/index.js /app/index.js
 COPY --from=prod-deps /app/node_modules /app/node_modules
-COPY --from=build /app/dist /app/dist
-RUN corepack install -g pnpm
-CMD [ "pnpm", "start" ]
+WORKDIR /app
+CMD ["index.js"]

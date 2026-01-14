@@ -54,21 +54,24 @@ async function setUpNetwork(docker: Docker) {
     logger.info(`Setting up network "${networkList[i]}"`)
 
     const existingNetworks = await docker.listNetworks({filters: {name: [networkList[i]]}})
-    if (existingNetworks.length === 1) {
+    if (existingNetworks.find(n => n.Name === networkList[i])) {
       logger.info(`Network "${networkList[i]}" already exists`)
     }
-
     else {
-      await docker.createNetwork({
-        Name: networkList[i],
-        Driver: "bridge",
-        Internal: true,
-        Labels: {
-          "tj.horner.dragonify.networks": "true"
-        },
-      })
-
-      logger.info(`Network "${networkList[i]}" created`)
+      try {
+        await docker.createNetwork({
+          Name: networkList[i],
+          Driver: "bridge",
+          Internal: true,
+          Labels: {
+            "tj.horner.dragonify.networks": "true"
+          },
+        })
+        logger.info(`Network "${networkList[i]}" created`)
+      } catch (e: any) {
+        if (e.statusCode !== 409) throw e
+        logger.debug(`Network "${networkList[i]}" already exists (race condition)`)
+      }
     }
   }
 }
@@ -92,18 +95,22 @@ async function connectContainerToAppsNetwork(docker: Docker, container: Docker.C
   }
 
   const isExistingNetwork = await docker.listNetworks({filters: {name: [network_name]}})
-  if (isExistingNetwork.length !== 1) {
+  if (!isExistingNetwork.find(n => n.Name === network_name)) {
     logger.info(`Network "${network_name}" need by ${container.Names} don't exists yet, creating...`)
-    await docker.createNetwork({
-      Name: network_name,
-      Driver: "bridge",
-      Internal: true,
-      Labels: {
-        "tj.horner.dragonify.networks": "true"
-      },
-    })
-
-    logger.info(`Network "${network_name}" created`)
+    try {
+      await docker.createNetwork({
+        Name: network_name,
+        Driver: "bridge",
+        Internal: true,
+        Labels: {
+          "tj.horner.dragonify.networks": "true"
+        },
+      })
+      logger.info(`Network "${network_name}" created`)
+    } catch (e: any) {
+      if (e.statusCode !== 409) throw e
+      logger.debug(`Network "${network_name}" already exists (race condition)`)
+    }
   }
 
   const network = docker.getNetwork(network_name)
@@ -131,7 +138,7 @@ function isContainerInNetwork(container: Docker.ContainerInfo, network_name: str
 }
 
 function isIxProjectName(name: string) {
-  return name.startsWith("ix-")
+  return name?.startsWith("ix-") ?? false
 }
 
 function isIxAppContainer(container: Docker.ContainerInfo) {
