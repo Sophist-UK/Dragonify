@@ -9,7 +9,7 @@ services:
     environment:
       CONNECT_ALL: false
       LOG_LEVEL: debug
-    restart: always
+    restart: unless-stopped
     user: 0:${DOCKER_GID:-0}
     network_mode: none
     cap_drop:
@@ -18,3 +18,4 @@ services:
       - no-new-privileges
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /tmp:/app/logs
