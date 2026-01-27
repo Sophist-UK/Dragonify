@@ -5,53 +5,61 @@
 which can reconfigure the default Docker networks provided by TrueNAS Scale for apps to allow them to communicate
 with each other.
 
+This is a fork of work by
+[@TJHorner](https://github.com/tjhorner/dragonify),
+[@Casse-Boubou](https://github.com/casse-boubou/dragonify) &
+[@EngTurtle](https://github.com/EngTurtle/dragonify)
+and full credit needs to be given to them
+for the original code and underlying ideas.
+
 ## Short Explanation
 
 In Dragonfish and earlier (which used Kubernetes)
-all apps were on the default shared network,
+all apps were on the default shared virtual bridged network,
 but from Electric Eel onwards
-TrueNAS creates a separate virtualised docker network for each TrueNAS app
-(presumably for security reasons)
-and this makes it difficult or impossible for different apps to communicate with one another.
+TrueNAS creates a separate virtualised Docker bridged network for each TrueNAS app
+(presumably for security reasons to isolate apps from one another),
+and this makes it much more difficult or impossible for different apps to communicate with one another.
 
 Dragonify provides a solution to this problem by allowing you
-to move apps onto one or more shared networks.
+to disconnect apps from the app-specific bridged network,
+and connect them onto one or more shared networks.
 
 ### Caution
 
-1. This approach of changing networks is uses official documented Docker API calls,
+1. This approach of changing networks uses official documented Docker API calls,
 but is unsupported by TrueNAS.
-This app is independently produced open-source software, and is unsupported by TrueNAS.
+This app is independently produced open-source software,
+and is also unsupported by TrueNAS.
 
 2. This app changes the network configuration of a container
 **after** it has initialised.
 Some apps are not capable of recognising such network changes
 or are not capable of reconfiguring themselves to use the new network.
-For these apps, you may need to attach the other containers to either:
-
-   a. the existing docker network for the app; or
-   b. the app container.
 
    Some experimentation and trial and error
-   may be needed to make shared networking work
+   may be needed to choose a network approach
+   which makes shared networking work
    for your specific combination of apps.
 
-3. This uses the docker socket to make Docker API calls
-to allow Dragonify to change networks,
-and this comes with some risks.
+3. Dragonify uses the Docker socket / Docker API to change networks,
+and this comes with some security risks.
 We have done what we can to mitigate any security risks
 (see [Security Hardening](#Security-Hardening) below)
 however you should ensure that you
 are comfortable with accepting any remaining security risks.
 
-   **Note:** This is also true of other Docker management platforms
+   **Note:** To put this security risk in context,
+   it is also true of other Docker management platforms
    that use the Docker API through the Docker API socket
    such as Portainer or Dockge -
    we are simply being up-front about it.
 
 ## Status
 
-***THIS IS A WORK-IN-PROGRESS VERSION OF THE README DESCRIBING A TO-BE VERSION OF DRAGONIFY - WITH THE PURPOSE OF GIVING A VISION AND INVITING INPUT ABOUT THE VISION AND TECHNICAL DETAILS OF IMPLEMENTING IT. YOUR INPUT IS REQUESTED PARTICULARLY:***
+***THIS IS A WORK-IN-PROGRESS VERSION OF THE README DESCRIBING A TO-BE VERSION OF DRAGONIFY -
+WITH THE PURPOSE OF GIVING A VISION AND INVITING INPUT ABOUT THE VISION AND TECHNICAL DETAILS OF IMPLEMENTING IT.
+YOUR INPUT IS REQUESTED PARTICULARLY:***
 
 * ***WHAT ARCHITECTURES SHOULD BE ADOPTED?***
 * ***HOW SHOULD THE USER CONFIGURE THEM?***
@@ -59,48 +67,8 @@ are comfortable with accepting any remaining security risks.
 * ***HOW CAN WE MINIMISE IMPACTS OF NETWORK ATTACH/DETACH?***
 * ***HOW DO WE SET HOST NAMES AND MAKE SURE DNS WORKS?***
 
-***PLEASE PROVIDE YOUR FEEDBACK TO [SOPHIST@SODALIS.CO.UK](mailto:sophist@sodalis.co.uk).***
-
-## TrueNAS standard Docker networking
-
-In its initial form in TrueNAS Scale Electric Eel, the application networking differs substantially from the previous Kubernetes networking architecture (where all apps shared a single container network and could communicate with one another).
-
-iX's initial Docker-apps implementation has only two options for Docker networks:
-
-1. Default - every app is connected to its own app-specific Docker bridged network with its own private subnet (by default in the 172.*.*.* range). This means that apps cannot communicate with other apps except through published ports.
-
-   *Note:* Complex apps that have multiple containers (e.g. NextCloud) will have all these containers in a single network and thus they can communicate amongst themselves but not with containers in other apps.
-
-   **Note:** It appears likely that this architecture was chosen for two reasons:
-
-      A. The default Docker Bridged network does NOT provide DNS name resolution, whilst explicitly created bridge networks do; and
-      B. Apps in the Apps store are generally stand-alone, and this Docker network model provides the greatest isolation of apps and thus the best security walls between apps.
-
-2. Host Network - although the app has it's app-specific Docker network created, it is ***not*** connected to it and uses the Host IP address(es) instead.
-
-To allow TrueNAS apps to communicate between themselves, TJ Horner created this utility,
-and in its initial form to replicate the previous Kubernetes network-architecture,
-creating a single shared Docker bridged network and connecting every non-Host-network app to it (CONNECT_ALL).
-To assist further with this Kubernetes simulation, it provided backward-compatibility
-with the old Kubernetes-based apps system for DNS names,
-by adding a DNS-alias in the format `{service}.ix-{app-name}.svc.cluster.local` for each app.
-
-A [subsequent improvement](https://github.com/tjhorner/dragonify/pull/3) by @casse-boubou
-extended the original concept to allow the original CONNECT_ALL approach to be disabled,
-and for individual containers to have a Docker Label defining a network for it to be connected to.
-(This PR was never merged.)
-
-A [further PR to the Casse-Boubou version](https://github.com/casse-boubou/dragonify/pull/1) by @EngTurtle
-fixed a race condition whereby two containers starting at the same time,
-and connecting to the same Dragonify network which needs to be created,
-may both attempt to create this new network at the same time with one of these attempts failing
-only because the other attempt succeeded.
-This version also made some changes to improve security.
-
-Finally, this current version by Sophist-UK is standing firmly on the shoulders of these three users,
-consisting of a full rewrite in fully compliant TypeScript,
-and allowing a number of alternative Docker-network architectures to be used
-on a container-by-container basis.
+***PLEASE PROVIDE YOUR FEEDBACK TO
+[SOPHIST@SODALIS.CO.UK](mailto:sophist@sodalis.co.uk?subject=Dragonify%20feedback).***
 
 ## Technical Warnings
 
@@ -114,23 +82,49 @@ to run the equivalent of `docker network connect` commands against already runni
 
    It does ***not*** update the TrueNAS application definitions to make the changes before the container starts.
 
-   Because these commands change the container's network configuration at run-time ***after*** it has initialised,
-the container needs to be able to recognise that it's configuration has changed and
-reconfigure the container IP routing tables (and this may depend on what base O/S the container has been built upon) and
-the app itself may need an ability to recognise and handle post-initialisation network changes.
+   Because these commands change the container's network configuration at run-time ***after*** it has initialised:
 
-   However, if you have such an app (which cannot handle network changes) you can always set it so that the other apps are added to the TrueNAS default network for that app.
+   1. the container needs to recognise that it's configuration has changed; and:
+
+   2. the container needs to reconfigure it's IP routing tables; and
+
+   3. the app also may need an ability to recognise and handle post-initialisation network changes.
+
+   TrueNAS apps are generally simple packaging of containers created and maintained by others,
+   so if you have a container which cannot handle this then you need to take this up with the
+   container authors and **not** with TrueNAS.
+
+   If you have such an app (which cannot handle network changes)
+   it may be possible to:
+
+   * leave it on the existing TrueNAS default application-specific Docker network; and
+   * connect the other apps either to the same network or to the container itself.
 
 ## Change Log
 
 | Author | Version |Image | Description
 |-|-|-|-
-| TJ Horner | v1.0 | [ghcr.io/tjhorner/dragonify:main](https://github.com/tjhorner/dragonify) | Connect all non-Host containers to a single shared bridged Docker network (CONNECT_ALL)
-| Casse Boubou | v1.2 | [ghcr.io/casse-boubou/dragonify:main](https://github.com/casse-boubou/dragonify) | Allow individual containers to define their own Docker bridged network - allows multiple shared bridged Docker networks (CONNECT_ALL=false)
-| EngTurtle | v1.2 | [ghcr.io/EngTurtle/dragonify:main](https://github.com/EngTurtle/dragonify) | Handle errors resulting from 2 or more parallel requests to create a new network (for e.g. multiple containers starting simultaneously in e.g. NextCloud), switch from pnpm to npm to avoid needing network connection (potential security issue),
-| Sophist-UK | v2.0alpha | [ghcr.io/Sophist-UK/dragonify:main](https://github.com/Sophist-UK/dragonify) | As above plus completely refactored clean TS code, supporting additional Docker network approaches, much improved logging, filtered container start/stop event handling, clean termination by handling the Dragonify container terminate signal, internal tracking of networks and connected containers to avoid unnecessary Docker calls, plus github actions for linting and TypeScript code quality analysis.
+| [TJ Horner](https://github.com/tjhorner) | v1.0 | [ghcr.io/tjhorner/dragonify:main](https://github.com/tjhorner/dragonify) | Connect all non-Host containers to a single shared bridged Docker network (`CONNECT_ALL`)
+| [Casse Boubou](https://github.com/casse-boubou) | v1.1 | [ghcr.io/casse-boubou/dragonify:main](https://github.com/casse-boubou/dragonify) | Allow individual containers to define their own Docker bridged network - allows multiple shared bridged Docker networks (`CONNECT_ALL=false`)
+| [EngTurtle](https://github.com/EngTurtle) | v1.2 | [ghcr.io/EngTurtle/dragonify:main](https://github.com/EngTurtle/dragonify) | Handle parallel requests to create a new network (for e.g. multiple containers starting simultaneously in e.g. NextCloud), security hardening, switch to `esbuild`
+| [Sophist-UK](https://github.com/Sophist-UK) | v2.0alpha | [ghcr.io/Sophist-UK/dragonify:main](https://github.com/Sophist-UK/dragonify) | Refactored with cleaner code & additional functionality (see bullet list below)
 
 **Note:** This table will be updated as v0.4 progresses and when image locations above are changed if/when PRs are merged.
+
+Additional credit to [@shanelord01](https://github.com/shanelord01)'s [pangolin-autonet-watcher](https://github.com/shanelord01/pangolin-autonet-watcher)
+for inspiration on improved DNS handling.
+
+The changes made in Sophist-UK's version are (or will be once implemented):
+
+* Completely refactored clean TS code with strict typing
+* Additional Docker network approaches (none, Container)
+* Dragonify clean-up on termination - essentially connecting apps back to their default networks.
+* Network pruning and re-creation
+* Improved logging
+* Filtered container start/stop event handling
+* Clean termination by handling the Dragonify container terminate signal
+* Caching of networks and connected containers to avoid unnecessary Docker calls
+* Github actions for linting and TypeScript code quality analysis etc.
 
 ## Docker Network approaches
 
@@ -141,14 +135,6 @@ Whilst this is ***not*** a substitute for a detailed understanding of [Docker Ne
 it is hoped that this will be sufficient for you to decide which approach to use and how to set things up.
 
 ### TrueNAS Docker Default Networks
-
-```mermaid
-graph TD;
-   A-->B;
-   A-->C;
-   B-->D;
-   C-->D;
-```
 
 ![TrueNas Docker Default Networks](.github/assets/truenas-docker-default-app-networks.png)
 
@@ -198,29 +184,33 @@ but no network changes will be made regardless.
 despite not connecting the container(s) to it,
 TrueNAS continues to create the aligned Docker Bridged Network.
 
-### Dragonify `CONNECT_ALL = "true"` (default)
-
-![Dragonify CONNECT_ALL](.github/assets/dragonify-connect-all-network.png)
+### Dragonify 1.0 (TJHorner)
 
 This diagram shows how both earlier versions of TrueNAS that used Kubernetes
 mapped apps to a single virtualised container network (except for Host Network apps of course),
-and how the original Dragonify version mapped networks in later versions of TrueNAS that use Docker.
+and how the Dragonify v1.0 maps networks in Electric Eel and later versions of TrueNAS that use Docker.
 
-However this original implementation is a one-option approach,
-and to provide greater flexibility @Casse-Boubou extended the functionality so that:
-* if you specify an environment variable `CONNECT_ALL = "false"`, then
+![Dragonify CONNECT_ALL](.github/assets/dragonify-connect-all-network.png)
+
+As you can see this original implementation was a one-option approach,
+designed solely to mimic how networks were defined in TrueNAS SCALE Dragonfish and earlier versions,
+by connecting all containers to a single common Docker bridged network (`apps-internal`).
+
+This is how the original TJHorner version of Dragonify worked,
+and how later Casse-Boubou, EngTurtle and Sophist-UK versions still work
+if you set `CONNECT_ALL = "true"`
+(which is the default i.e. if you **don't** set `CONNECT_ALL = "false"`)...
+
+### Dragonify 1.1 (Casse-Boubou)
+
+To provide greater flexibility @Casse-Boubou extended the functionality so that
+if you specify an environment variable `CONNECT_ALL = "false"`, then:
 * for each container, you can define using a Docker Label (`tj.horner.dragonify.networks`)
 the alternative network(s) you want Dragonify to connect the container to
 * if you don't define such a label then Dragonify does nothing with the container,
 leaving it on the default application-specific bridged network.
 
-If you ***don't*** specify `CONNECT_ALL = "false"` as a Dragonify environment variable,
-then (for backwards compatibility purposes) all later versions of Dragonify
-will continue to connect all containers to a single common Docker bridged network (`apps-internal`).
-
-### Dragonify `CONNECT_ALL = "false"`
-
-However, in newer versions of Dragonify, by configuring `CONNECT_ALL = "false"`, instead of a single `apps-internal` bridged network,
+Now, instead of a single `apps-internal` bridged network,
 you can now have several shared bridged networks for different groups of applications.
 
 ![Dragonify Dual Shared Networks](.github/assets/dragonify-dual-shared-networks.png)
@@ -231,7 +221,32 @@ and setting a labels on the apps as follows:
 * app-1/2/3 - `tj.horner.dragonify.networks = "group-1"`
 * app-4/5/6 - `tj.horner.dragonify.networks = "group-2"`
 
-### Dragonify Front-end + Isolated Back-ends
+### Dragonify 1.2 (EngTurtle)
+
+@EngTurtle delivered some small, but essential improvements:
+
+* Fix for multiple parallel attempts to create a new network causing Dragonify to crash
+* Security hardening (no network, Docker socket read-only)
+* Switch from pnpm to npm to avoid need for network
+* Switch from `tsc` to `esbuild`
+
+### Dragonify 2.0 (Sophist-UK)
+
+Dragonify 2.0 is a significant further enhancement,
+building upon the code and ideas from previous versions,
+as follows:
+
+* Additional Docker network types in addition to bridged (none, container)
+* Network gateway priorities
+* Improved DNS settings
+
++ Code refactor to be fully strict-typed TypeScript
+* Caching network information to avoid repeated Docker API calls for the same information
+* Improved documentation
+
+To give some idea of the additional network configuration this enables:
+
+#### Front-end + Isolated Back-ends
 
 ![Dragonify Front-end + Isolated Back-end](.github/assets/dragonify-isolated-backend-network.png)
 
@@ -242,8 +257,8 @@ physically preventing users from having
 You would achieve the above by defining setting Dragonify environment variable `CONNECT_ALL = "false"`
 and setting a labels on the apps as follows:
 
-* front-end - `tj.horner.dragonify.networks = "front-end-net,isolated-net:none"`
-* service-1/2 - `tj.horner.dragonify.networks = "isolated-net:none"`
+* front-end - `tj.horner.dragonify.networks = "front-end-net,none:isolated-net"`
+* service-1/2 - `tj.horner.dragonify.networks = "none:isolated-net"`
 
 This model can also be used to e.g. route apps internet access through a VPN.
 
@@ -269,21 +284,61 @@ and not the bridged network(s).
 
 ![Dragonify Front-end + Accessible Back-end](.github/assets/dragonify-non-isolated-backend.png)
 
+You would achieve the above by defining setting Dragonify environment variable `CONNECT_ALL = "false"`
+and setting a labels on the apps as follows:
+
+* vpn - `tj.horner.dragonify.networks = "vpn-net,none:isolated-net"`
+* service-1 - `tj.horner.dragonify.networks = "none:isolated-net,app-1-net"`
+* service-2 - `tj.horner.dragonify.networks = "none:isolated-net,bridged:app-2-net"`
+
 ### Dragonify Container Attachment
 
 ![Dragonify Container Attached Network](.github/assets/dragonify-container-attached-network.png)
 
-This networking approach is being described as a ***possible*** future enhancement
-because it has some restrictions and difficulties.
-Whilst it potentially might provide some capabilities
-not achievable through any of the previous approaches,
-attaching `app-2` to the `container:app-1` requires `app-1` to be running.
-It is also unclear what happens to `app-2` if `app-1` stops running,
-since `app-2` seems to rely on `app-1`'s iptables for packets to be forwarded to `app-2`.
+You would achieve the above by defining setting Dragonify environment variable `CONNECT_ALL = "false"`
+and setting a labels on the apps as follows:
+
+* app2 - `tj.horner.dragonify.networks = "container:app1"`
+
+Note: The actual container may be named `app-1` if a custom TrueNAS app defined through the UI,
+but it may be called `ix-app1-app1-1` if a normal TrueNAS app or a custom app defined through a YAML compose file.
+
+This has not yet been implemented and
+some difficulties with this approach can be foreseen.
+For example,
+if app2 wants to be attached to container:app1, then what happens if:
+
+1. app1 is not started?
+2. at some future point app1 starts?
+3. at some future point app1 stops?
+
+Potential ways of handling these are as follows:
+
+1. Leave app2 disconnected from app2 and wait for app1 to start?
+2. We can connect app2 if we know we need to do so. So do we:
+   1. Keep track of started apps that use container attachment?
+   2. Have a label on app1 (e.g. contained:app2) to mirror the definition?
+   3. Scan through all running apps to see if one has container:app1?
+3. What does Docker do? What do we need to do if anything?
+
+**Note:** It would also be possible to issue TrueNAS API calls to start the app1 app,
+however:
+
+* This would likely require Dragonify to have a network connection introducing security risks
+* Should Dragonify do this without the user's approval?
+
+so this idea has been rejected.
 
 ### Dragonify Completely Isolated Container
 
 ![Dragonify Completely Isolated App](.github/assets/dragonify-completely-isolated-app.png)
+
+This is how Dragonify should now configured to run (in a YAML file),
+but just in case, it disconnects itself if needed.
+
+However, you can achieve this for other apps by setting a label as follows:
+
+* `tj.horner.dragonify.networks = ""`
 
 ## Docker visibility
 
@@ -300,18 +355,14 @@ and perhaps essential if you want to debug or contribute to Dragonify infrastruc
 
 ## Installation
 
-The following instructions assume that you are installing v0.4.
+The following instructions assume that you are installing v2.0.
 If you decide to install an earlier version,
-then you will need to research how to vary the instructions below.
+then you will need to use the instructions from the earlier author's repos.
 
 As yet, Dragonify has not made it to the TrueNAS Apps Store,
 so you will need to install it as a Custom App in TrueNAS Scale,
 and there are a couple of ways to do this after going to
 the Apps page in the TrueNAS UI and clicking `Discover Apps`:
-
-### Custom App screens...
-
-
 
 ### Custom Compose.yaml...
 
@@ -365,15 +416,38 @@ use the same technology and have the same risks
 We are simply being up-front and explicit about those risks
 in order that users can make informed security decisions about using Dragonify.
 
+### Custom App screens...
+
+
+
 ## Technical Details
 
-To facilitate inter-app communication, Dragonify creates a new Docker bridge network called `apps-internal`. It connects all existing TrueNAS-managed containers to the network, then starts listening for new containers to be started. When a new container is started, Dragonify will automatically connect it to the `apps-internal` network.
+Dragonify uses the Docker API to make calls which have equivalent Docker CLI commands e.g.
 
-It is essentially running this command automatically for you (using postgres as an example):
+| Action | Example Command
+|-|-
+| Creating a network |
+| Attaching a container to a network | `docker network connect apps-internal --alias postgres.ix-postgres.svc.cluster.local ix-postgres-postgres-1`
+| Detaching a container from a network |
+| Deleting a network |
 
-```sh
-docker network connect apps-internal --alias postgres.ix-postgres.svc.cluster.local ix-postgres-postgres-1
-```
+Dragonify creates network and attaches containers to them:
+* when Dragonify starts - for existing running TrueNAS apps
+* after Dragonify is running - when new TrueNAS apps start
+
+Dragonify detaches containers from networks and deletes empty networks:
+* when Dragonify is running - when TrueNAS apps stop
+* when Dragonify closes - for existing running TrueNAS apps
+
+## Technical References
+
+### Docker Background Info
+* [Docker Networking](https://docs.docker.com/engine/network)
+* [Docker API](https://docs.docker.com/reference/api/engine/version/v1.47)
+
+### For Dragonify Development
+* [Dockerode](https://github.com/apocas/dockerode)
+* [Dockerode TS type definitions](https://github.com/DefinitelyTyped/DefinitelyTyped/blob/master/types/dockerode/index.d.ts)
 
 ## License
 
